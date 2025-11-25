@@ -1,0 +1,75 @@
+version: '3'
+
+tasks:
+  sanity-check-health:
+    desc: "Check /health endpoint returns 200 and correct JSON structure"
+    cmds:
+      - echo "Testing /health"
+      - |
+        response=$(curl -s -w "%{http_code}" http://localhost:8080/health)
+        body=$(echo "$response" | sed '$d')
+        code=$(echo "$response" | tail -n1)
+        echo "Status code: $code"
+        echo "Body: $body"
+        if [ "$code" != "200" ]; then
+          echo "Expected 200 but got $code"
+          exit 1
+        fi
+        echo "$body" | grep -q '"status"' || { echo "Missing \"status\" field"; exit 1; }
+        echo "$body" | grep -q '"last_successful_sync"' || { echo "Missing \"last_successful_sync\" field"; exit 1; }
+
+  sanity-check-sync:
+    desc: "Check /sync endpoint returns 202 and triggered status"
+    cmds:
+      - echo "Testing /sync"
+      - |
+        response=$(curl -s -o /tmp/sync_body.txt -w "%{http_code}" -X POST http://localhost:8080/sync)
+        code=$response
+        body=$(cat /tmp/sync_body.txt)
+        echo "Status code: $code"
+        echo "Body: $body"
+        if [ "$code" != "202" ]; then
+          echo "Expected 202 but got $code"
+          exit 1
+        fi
+        echo "$body" | grep -q '"status":"triggered"' || { echo "Unexpected body: $body"; exit 1; }
+
+  sanity-check-alerts-basic:
+    desc: "Check /alerts endpoint (no filters) returns 200 and JSON array"
+    cmds:
+      - echo "Testing /alerts"
+      - |
+        response=$(curl -s -w "%{http_code}" http://localhost:8080/alerts)
+        body=$(echo "$response" | sed '$d')
+        code=$(echo "$response" | tail -n1)
+        echo "Status code: $code"
+        echo "Body: $body"
+        if [ "$code" != "200" ]; then
+          echo "Expected 200 but got $code"
+          exit 1
+        fi
+        echo "$body" | grep -q '^\[' || { echo "Expected JSON array, got: $body"; exit 1; }
+
+  sanity-check-alerts-invalid-param:
+    desc: "Check /alerts endpoint with invalid limit returns 400 and error JSON"
+    cmds:
+      - echo "Testing /alerts?limit=notanumber"
+      - |
+        response=$(curl -s -w "%{http_code}" "http://localhost:8080/alerts?limit=notanumber")
+        body=$(echo "$response" | sed '$d')
+        code=$(echo "$response" | tail -n1)
+        echo "Status code: $code"
+        echo "Body: $body"
+        if [ "$code" != "400" ]; then
+          echo "Expected 400 but got $code"
+          exit 1
+        fi
+        echo "$body" | grep -q '"error":"invalid limit param"' || { echo "Unexpected body: $body"; exit 1; }
+
+  test-all:
+    desc: "Run all integration curl tests"
+    deps:
+      - sanity-check-health
+      - sanity-check-sync
+      - sanity-check-alerts-basic
+      - sanity-check-alerts-invalid-param
