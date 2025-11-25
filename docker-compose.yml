@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: alertsdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mock-alerts-api:
+    build:
+      context: ./mock-alerts-api
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    depends_on:
+      - db
+    environment:
+      # Add any needed env variables for mock service
+      MOCK_API_DELAY_PROB: "0.2"
+      MOCK_API_FAIL_PROB: "0.1"
+
+  alert-ingest-service:
+    build:
+      context: ./alert-ingest-service
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+      - mock-alerts-api
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: password
+      DB_NAME: alertsdb
+      UPSTREAM_URL: http://mock-alerts-api:8081/alerts
+      HTTP_PORT: ":8080"
+      SYNC_INTERVAL: "5"
+
+volumes:
+  postgres-data:
